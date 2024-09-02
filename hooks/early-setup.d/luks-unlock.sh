@@ -100,6 +100,7 @@ unlock_partitions() {
     local keyfile="${keydir}/${mapping}.key"
     mkdir -p "${keydir}"
     echo -n "${passphrase}" > "${keyfile}"
+    chmod 0600 "${keyfile}"
     unset partition mapping
   done
 }
