@@ -1,8 +1,10 @@
 #!/bin/bash
 
-## This early-setup hook finds all LUKS volumes by looking for partitions with
-## fstype "crypto_LUKS". (Partition fstypes can be queried on GPT by supplying
-## lsblk with the "--fs" option; see lsblk(8) for details.)
+## This early-setup hook has two operating modes. Either it reads the UUIDS from the 
+## config file specified in UUID_CONF, or (if empty or not found) finds all LUKS 
+## volumes by looking for partitions with fstype "crypto_LUKS". (Partition fstypes 
+## can be queried on GPT by supplying lsblk with the "--fs" option; see lsblk(8) for 
+## details.)
 ##
 ## If LUKS partitions are found, the hook attempts to unlock each encrypted volume.
 ## If successful, this will allow ZFSBootMenu to automatically find any zfs pools
@@ -26,6 +28,8 @@
 ## Because this script is intended to unlock volumes *before* ZFSBootMenu
 ## imports ZFS pools, it should be run as an early hook.
 
+UUID_CONF="/etc/zfsbootmenu-luks-uuids.conf"
+
 sources=(
   /lib/profiling-lib.sh
   /etc/zfsbootmenu.conf
@@ -35,16 +39,22 @@ sources=(
 )
 
 for src in "${sources[@]}"; do
-  # shellcheck disable=SC1090
   if ! source "${src}" > /dev/null 2>&1; then
     echo -e "\033[0;31mWARNING: ${src} was not sourced; unable to proceed\033[0m"
     exit 1
   fi
 done
 
-unset src sources
-
 keydir="/tmp/keydir/etc/cryptsetup-keys.d"
+
+# Reads allowed UUIDs from config file (ignoring empty lines/comments)
+load_allowed_uuids() {
+  if [ -r "$UUID_CONF" ]; then
+    mapfile -t ALLOWED_UUIDS < <(grep -vE '^\s*#' "$UUID_CONF" | awk 'NF')
+  else
+    ALLOWED_UUIDS=()
+  fi
+}
 
 luks_unlock() {
   local partition="$1"
@@ -56,7 +66,7 @@ luks_unlock() {
     return 1
   fi
 
-  if ! cryptsetup isLuks ${partition} >/dev/null 2>&1; then
+  if ! cryptsetup isLuks "${partition}" >/dev/null 2>&1; then
     zwarn "device ${partition} missing LUKS partition header"
     return 1
   fi
@@ -82,18 +92,52 @@ luks_unlock() {
 }
 
 unlock_partitions() {
-  local partitions=($(lsblk -lpnf -o NAME,UUID,FSTYPE | awk '/crypto_LUKS/{print $1 "=luks-" $2}'))
+  load_allowed_uuids
+  local partitions=()
+
+  if [ ${#ALLOWED_UUIDS[@]} -eq 0 ]; then
+    zinfo "No UUID config or empty; \033[1;33mFALLBACK to unlocking ALL detected LUKS partitions\033[0m"
+    mapfile -t partitions < <(
+      lsblk -lpnf -o NAME,UUID,FSTYPE | awk '/crypto_LUKS/{print $1 "=luks-" $2}'
+    )
+  else
+    zinfo "\033[1;32mUUID filter mode active\033[0m — unlocking only configured partitions from $UUID_CONF"
+    while read -r name uuid fstype; do
+      if [[ "${fstype}" == "crypto_LUKS" ]]; then
+        for allowed in "${ALLOWED_UUIDS[@]}"; do
+          if [[ "${uuid}" == "${allowed}" ]]; then
+            partitions+=("${name}=luks-${uuid}")
+          fi
+        done
+      fi
+    done < <(lsblk -lpnf -o NAME,UUID,FSTYPE)
+  fi
+
   if [ ${#partitions[@]} -eq 0 ]; then
-    zinfo "no encrypted luks partitions found, skipping unlock"
+    zinfo "No encrypted LUKS partitions matched criteria, skipping unlock"
     return 1
   fi
 
-  read -r -s -p "Enter passphrase for encrypted partitions: " passphrase
+  # Print target partitions before prompt, including friendly label if available
+  echo -e "\n\033[1;34mThe following partitions will be unlocked:\033[0m"
+  for p in "${partitions[@]}"; do
+    IFS='=' read -r part map <<< "$p"
+    uuid=$(echo "$map" | sed 's/^luks-//')
+    # Try to get the disk label or partition LABEL from lsblk if available
+    label=$(lsblk -no LABEL "$part" 2>/dev/null)
+    if [ -n "$label" ]; then
+      echo "  Device: $part    UUID: $uuid    Label: $label"
+    else
+      echo "  Device: $part    UUID: $uuid"
+    fi
+  done
+  echo
+
+  read -r -s -p "Enter passphrase for above partitions: " passphrase
   echo -e "\nUnlocking..."
 
   for p in "${partitions[@]}"; do
     IFS='=' read -r partition mapping <<< "$p"
-
     zinfo "unlocking device ${partition} to mapping ${mapping}"
     luks_unlock "${partition}" "${mapping}" "${passphrase}"
 
@@ -101,7 +145,6 @@ unlock_partitions() {
     mkdir -p "${keydir}"
     echo -n "${passphrase}" > "${keyfile}"
     chmod 0600 "${keyfile}"
-    unset partition mapping
   done
 }
 
