@@ -8,26 +8,30 @@ A custom build of [ZFSBootMenu](https://zfsbootmenu.org) to allow unlocking and 
 
 2. Clone the current repository
 
-3. Fetch the latest zbm-builder.sh script from ZFSBootMenu repository
+3.(optionally) Add the partitons' UUIDs to dracut.conf.d/zfsbootmenu-luks-uuids.conf
+
+4. Fetch the latest zbm-builder.sh script from ZFSBootMenu repository
 
     ```
     curl -O https://raw.githubusercontent.com/zbm-dev/zfsbootmenu/master/zbm-builder.sh
     ```
 
-4. Build a custom ZFSBootMenu image by using current repository as a build directory
+5. Build a custom ZFSBootMenu image by using current repository as a build directory
 
     ```
     cd zbm-luks-unlock
     ./zbm-builder.sh -H
     ```
 
-5. The newly built ZFSBootMenu image will reside in the `build` directory
+6. The newly built ZFSBootMenu image will reside in the `build` directory
 
 ## How it works
 
 The hooks mechanism of ZFSBootMenu is used to inject two hooks into the boot process.
 
-First is the `luks-unlock.sh` early-setup hook that prompts the user for the passphrase that unlocks the luks volumes.
+First is the `luks-unlock.sh` early-setup hook that prompts the user for the passphrase that unlocks the luks volumes either 
+specified via their UUIDs in dracut.conf.d/zfsbootmenu-luks-uuids.conf or, if this file is empty, then tries to unlock all 
+luks partitons that are found.
 This allows ZFSBootMenu to discover zfs pools residing in luks volumes. The passphrase is also stored a relevant keyfile
 in memory to be used by the later hooks.
 
