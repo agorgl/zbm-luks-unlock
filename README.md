@@ -8,7 +8,7 @@ A custom build of [ZFSBootMenu](https://zfsbootmenu.org) to allow unlocking and 
 
 2. Clone the current repository
 
-3.(optionally) Add the partitons' UUIDs to dracut.conf.d/zfsbootmenu-luks-uuids.conf
+3. (optionally) Add the partitons' UUIDs to dracut.conf.d/zfsbootmenu-luks-uuids.conf
 
 4. Fetch the latest zbm-builder.sh script from ZFSBootMenu repository
 
