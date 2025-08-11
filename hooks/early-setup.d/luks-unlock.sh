@@ -28,7 +28,7 @@
 ## Because this script is intended to unlock volumes *before* ZFSBootMenu
 ## imports ZFS pools, it should be run as an early hook.
 
-UUID_CONF="/etc/zfsbootmenu-luks-uuids.conf"
+UUID_CONF="/etc/zfsbootmenu/dracut.conf.d/zfsbootmenu-luks-uuids.conf"
 
 sources=(
   /lib/profiling-lib.sh
